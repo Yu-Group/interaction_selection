@@ -43,12 +43,12 @@ def load_data(
         y = np.array(robjects.r['data'][i])[-5000:]
     elif name == "Enhancer":
         if rule == "and":
-            robjects.r['load']("../../signediRF/data/enhancer_sim_or.Rdata")
+            robjects.r['load']("../../signediRF/data/enhancer_sim_and.Rdata")
             interact_true = [
                 [(45, "R"), (49, "R"), (63, "R"), (74, "R")]
             ]
         elif rule == "or":
-            robjects.r['load']("../../signediRF/data/enhancer_sim_add.Rdata")
+            robjects.r['load']("../../signediRF/data/enhancer_sim_or.Rdata")
             interact_true = [
                 [(45, "R"), (74, "R"), (49, "L"), (63, "L")],
                 [(45, "L"), (74, "L"), (49, "R"), (63, "R")],
