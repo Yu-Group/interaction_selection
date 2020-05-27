@@ -75,15 +75,19 @@ def load_data(
     return X, y, interact_true
 
 
-def train_model(X, y, name="Sim", rule="and", weight_scheme="depth"):
-    if name == "Sim":
-        rf = rfc(
-            n_jobs=4,
-            n_estimators=100,
-            bootstrap=False,
-        )
-    else:
-        raise ValueError("name not allowed")
+def train_model(
+    X,
+    y,
+    name="Sim",
+    rule="and",
+    weight_scheme="depth",
+    bootstrap=True,
+):
+    rf = rfc(
+        n_jobs=4,
+        n_estimators=100,
+        bootstrap=bootstrap,
+    )
     rf.fit(
         X,
         y,
