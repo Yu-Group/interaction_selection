@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import irf
+import pandas as pd
 from irf.ensemble import wrf as rfc
 from irf.utils import (
     get_prevalent_interactions,
@@ -11,7 +12,59 @@ from irf.utils import (
 import rpy2.robjects as robjects
 from irf.irf_jupyter_utils import draw_tree
 
-
+def load_siRF_result(
+    i=0,
+    name="Sim",
+    rule="and",
+):
+    if name == "Sim":
+        data = pd.read_csv("~/sim_{}.csv".format(rule))
+        if rule == "and":
+            interact_true = [
+                [(0, 'R'), (1, 'R'), (2, 'R'), (3, 'R')],
+            ]
+        elif rule == "or":
+            interact_true = [
+                [(0, 'R'), (1, 'R'), (2, 'L'), (3, 'L')],
+                [(0, 'L'), (1, 'L'), (2, 'R'), (3, 'R')],
+            ]
+        elif rule == "add":
+            interact_true = [
+                [(0, 'R'), (1, 'R'), (2, 'R')],
+                [(3, 'R'), (4, 'R'), (5, 'R')],
+            ]
+        else:
+            raise ValueError(
+                "rule (%s) is not allowed. only take and, or, add"
+            )
+        raw_list = data.loc[data['rep'] == i, 'int']
+        y_pred = [[(int(x[1:-1])-1, 'R') if x[-1] == '+' else (int(x[1:-1])-1, 'L') for x in elem.split("_")] for elem in raw_list]
+    elif name == "Enhancer_new":
+        data = pd.read_csv("~/enhancer_{}.csv".format(rule))
+        if rule == "and":
+            interact_true = [
+                [(0, "R"), (4, "R"), (18, "R"), (29, "R")]
+            ]
+        elif rule == "or":
+            interact_true = [
+                [(4, "R"), (18, "R"), (0, "L"), (29, "L")],
+                [(4, "L"), (18, "L"), (0, "R"), (29, "R")],
+            ]
+        elif rule == "add":
+            interact_true = [
+                [(4, "R"), (8, "R"), (18, "R")],
+                [(0, "R"), (29, "R"), (32, "R")],
+            ]
+        else:
+            raise ValueError(
+                "rule (%s) is not allowed. only take and, or, add"
+            )
+        raw_list = data.loc[data['rep'] == i, 'int']
+        y_pred = [[(x[:-1].lower() if len(x) > 2 else x[:-1], 'R') if x[-1] == '+' else (x[:-1].lower() if len(x) > 2 else x[:-1], 'L') for x in elem.split("_")] for elem in raw_list]
+    else:
+        raise ValueError("name is not allowed. only Enhancer or Sim")
+    return y_pred, interact_true
+    
 def load_data(
     i=0,
     name="Sim",
@@ -70,6 +123,35 @@ def load_data(
         y = np.array(robjects.r['data'][i])[7809*80:7809*81]
         X = X[train_id]
         y = y[train_id]
+    elif name == "Enhancer_new":
+        if rule == "and":
+            robjects.r['load']("../../signediRF/data/enhancer_new_sim_and.Rdata")
+            interact_true = [
+                [(0, "R"), (4, "R"), (18, "R"), (29, "R")]
+            ]
+        elif rule == "or":
+            robjects.r['load']("../../signediRF/data/enhancer_new_sim_or.Rdata")
+            interact_true = [
+                [(4, "R"), (18, "R"), (0, "L"), (29, "L")],
+                [(4, "L"), (18, "L"), (0, "R"), (29, "R")],
+            ]
+        elif rule == "add":
+            robjects.r['load']("../../signediRF/data/enhancer_new_sim_add.Rdata")
+            interact_true = [
+                [(4, "R"), (8, "R"), (18, "R")],
+                [(0, "R"), (29, "R"), (32, "R")],
+            ]
+        else:
+            raise ValueError(
+                "rule (%s) is not allowed. only take and, or, add"
+            )
+        raw = np.array(robjects.r['data'][i])
+        len_train_id = int(raw[-1])
+        train_id = raw[-(len_train_id + 1):-1].astype(int) - 1
+        X = np.array(robjects.r['data'][i])[:7809 * 35].reshape((35, 7809)).T
+        y = np.array(robjects.r['data'][i])[7809*35:7809*36]
+        X = X[train_id]
+        y = y[train_id]
     else:
         raise ValueError("name is not allowed. only Enhancer or Sim")
     return X, y, interact_true
@@ -98,12 +180,21 @@ def train_model(
         min_support = 500 #if rule == "or" else 500
     else:
         min_support = 500
+    if name == 'Enhancer_new':
+        mask = ["zld", "bcd", "bcd", "cad", "D", "da", "dl", "ftz", "gt", "h",
+         "h", "hb", "hb", "hkb", "hkb", "hkb", "kni", "kni", "kr", "kr", 
+         "mad", "med", "prd", "prd", "run", "run", "shn", "shn", "slp1", "sna", 
+         "sna", "tll", "twi", "twi", "z"]
+        mask = {x:y for x, y in enumerate(mask)}
+    else:
+        mask = None
     prevalence = get_prevalent_interactions(
         rf,
         impurity_decrease_threshold=1e-3,
         min_support=min_support,
         signed=True,
         weight_scheme=weight_scheme,
+        mask=mask,
     )
     return list(prevalence.keys())
 
@@ -123,7 +214,7 @@ def fit_score(interact_pred, interact_true):
     else:
         return 0
 
-def evaluate_model(y_pred, y_true):
+def evaluate_model(y_pred, y_true, name):
     """
     Evaluate the predicted interactions.
     Each prediction gets a score for the best match for each elem in y_true
@@ -135,6 +226,9 @@ def evaluate_model(y_pred, y_true):
     y_pred : list, the predicted interactions
 
     y_true : list, the real interactions
+    
+    name : str, the name of the simulation ["Enhancer_new", "Enhancer", "Sim"]
+        When name is enhancer_new, features are converted to genes
 
 
     Returns
@@ -143,6 +237,14 @@ def evaluate_model(y_pred, y_true):
         avg_scores[i] is the highest score of first i+1 elems in matching
         y_true.
     """
+    if name == 'Enhancer_new':
+        mask = ["zld", "bcd", "bcd", "cad", "D", "da", "dl", "ftz", "gt", "h",
+         "h", "hb", "hb", "hkb", "hkb", "hkb", "kni", "kni", "kr", "kr", 
+         "mad", "med", "prd", "prd", "run", "run", "shn", "shn", "slp1", "sna", 
+         "sna", "tll", "twi", "twi", "z"]
+        mask = {x:y for x, y in enumerate(mask)}
+        y_true = [[(mask[x[0]], x[1]) for x in interact] for interact in y_true]
+        #y_pred = [[(mask[x[0]], x[1]) for x in interact] for interact in y_pred]
     avg_scores = np.zeros((len(y_pred),))
     for interact_true in y_true:
         scores = [
@@ -156,7 +258,7 @@ def evaluate_model(y_pred, y_true):
 
 
 if __name__ == "__main__":
-    for name in ["Sim", "Enhancer"]:
+    for name in ["Sim", "Enhancer", "Enhancer_new"]:
         for rule in ["and", "or", "add"]:
             for i in range(50):
                 X, y = load_data(i=i, name=name, rule=rule)
