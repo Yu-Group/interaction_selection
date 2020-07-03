@@ -11,6 +11,8 @@ from irf.utils import (
 )
 import rpy2.robjects as robjects
 from irf.irf_jupyter_utils import draw_tree
+from os.path import join as oj
+import os
 
 def load_siRF_result(
     i=0,
@@ -156,15 +158,69 @@ def load_data(
         raise ValueError("name is not allowed. only Enhancer or Sim")
     return X, y, interact_true
 
+def cache_result(filename, attribute_dict, results, dir='.'):
+    '''
+    This function is used to cache the results of the models
+    '''
+    filename = oj(dir, filename)
+    if os.path.exists(filename):
+        prev = pd.read_csv(filename, index_col=None)
+    else:
+        prev = pd.DataFrame({'attributes':[], 'results':[]})
+    out = prev.append({'attributes':attribute_dict, 'results':results}, ignore_index=True)
+    out.to_csv(filename, index=False)
+    return
+    
+def find_results_from_cache(filename, attribute_dict, dir='.'):
+    '''
+    This function tries to find the result given attribute_dict
+    
+    '''
+    filename = oj(dir, filename)
+    try:
+        cache = pd.read_csv(filename, index_col=None)
+    except:
+        print("cannot load file {}, quit.".format(filename))
+        return
+    result = None
+    for i in reversed(range(cache.shape[0])):
+        if cache.iloc[i]['attributes'] == str(attribute_dict):
+            result = cache.iloc[i]['results']
+            break
+    try:
+        result = eval(result)
+    except:
+        pass
+    return result
 
 def train_model(
     X,
     y,
+    iter,
     name="Sim",
     rule="and",
     weight_scheme="depth",
     bootstrap=True,
+    tag='DefaultTag',
+    use_cache=True,
+    cache_after_run=True,
 ):
+    params =  {
+        'name':name,
+        'rule':rule,
+        'weight_scheme':weight_scheme,
+        'bootstrap':bootstrap,
+        'iter':iter,
+    }
+    if weight_scheme == 'siRF':
+        # load siRF result
+        y_pred, y_true = load_siRF_result(i=iter+1, name=name, rule=rule)
+        return y_pred
+    # load cache first
+    if use_cache:
+        cache = find_results_from_cache(tag + '.csv', params)
+        if cache is not None:
+            return [x[0] for x in cache]
     rf = rfc(
         n_jobs=4,
         n_estimators=100,
@@ -196,12 +252,22 @@ def train_model(
         weight_scheme=weight_scheme,
         mask=mask,
     )
+    if cache_after_run:
+        cache_result(tag+'.csv', params, list(prevalence.items()))
     return list(prevalence.keys())
 
-def fit_score(interact_pred, interact_true):
+def fit_score(interact_pred, interact_true, type='strict'):
     """
     Compute the score of two sets
     We ignore the direction in this problem.
+    
+    type: ['strict', 'medium', 'mild']
+        if type is 'strict', 
+            score = 0 if S_pred is not subset of S_true and |S_pred| / |S_true| otherwise
+        elif type is 'medium':
+            score = 0 if S_pred is not subset of S_true and 1 otherwise
+        elif type is 'mild':
+            score = Jaccard distance(S_pred, S_true)
     """
     if len(interact_pred) == 0:
         return 0
@@ -209,12 +275,22 @@ def fit_score(interact_pred, interact_true):
         interact_pred = set([x[0] for x in interact_pred])
     if isinstance(interact_true[0], tuple):
         interact_true = set([x[0] for x in interact_true])
-    if interact_pred.issubset(interact_true):
-        return len(interact_pred) / len(interact_true)
+    if type == 'strict':
+        if interact_pred.issubset(interact_true):
+            return len(interact_pred) / len(interact_true)
+        else:
+            return 0
+    elif type == 'medium':
+        if interact_pred.issubset(interact_true):
+            return 1
+        else:
+            return 0
+    elif type == 'mild':
+        return len(interact_pred.intersection(interact_true)) / len(interact_pred.union(interact_true))
     else:
-        return 0
+        raise ValueError('type({}) is not acceptable.'.format)
 
-def evaluate_model(y_pred, y_true, name):
+def evaluate_model(y_pred, y_true, name, metric):
     """
     Evaluate the predicted interactions.
     Each prediction gets a score for the best match for each elem in y_true
@@ -230,6 +306,7 @@ def evaluate_model(y_pred, y_true, name):
     name : str, the name of the simulation ["Enhancer_new", "Enhancer", "Sim"]
         When name is enhancer_new, features are converted to genes
 
+    metric : str, ['strict', 'medium', 'mild']
 
     Returns
     -------
@@ -248,7 +325,7 @@ def evaluate_model(y_pred, y_true, name):
     avg_scores = np.zeros((len(y_pred),))
     for interact_true in y_true:
         scores = [
-            fit_score(interact_pred, interact_true) for interact_pred in y_pred
+            fit_score(interact_pred, interact_true, type=metric) for interact_pred in y_pred
         ]
         for i in range(1, len(scores)):
             scores[i] = max(scores[i], scores[i-1])
