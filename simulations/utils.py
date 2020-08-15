@@ -154,6 +154,38 @@ def load_data(
         y = np.array(robjects.r['data'][i])[7809*35:7809*36]
         X = X[train_id]
         y = y[train_id]
+    elif name == 'Sim_new':
+        np.random.seed(i * 100)
+        n, p = 5000, 50
+        X = np.random.normal(0, 1, size=(n, p))
+        if rule == 'single':
+            n_features = (i//20 + 4)
+            y = 0.8 * (X[:,:n_features] < 0).all(axis=1) + 0.05
+            for j in range(n):
+                y[j] = np.random.choice([0,1], p=(1 - y[j], y[j]))
+            interact_true = [
+                [(j, "L") for j in range(n_features)],
+            ]
+        elif rule == 'multiple':
+            n_features = (i//20) * 2 + 2
+            rules = 1 * (X[:,:n_features] < 0)
+            rules = rules[:,:n_features//2] * rules[:,n_features//2:]
+            y = (rules).sum(axis=1) * 0.1 + 0.05
+            for j in range(n):
+                y[j] = np.random.choice([0,1], p=(1 - y[j], y[j]))
+            interact_true = [
+                [(j, "L"), (j+n_features//2, "L")] for j in range(n_features//2)
+            ]
+        elif rule == 'overlap':
+            rule1 = 1 * (X[:,:6] < 0)
+            rule2 = 1 * (X[:,(6-(i//20)):(12-(i//20))] > 0)
+            y = (rule1).all(axis=1) * 0.4 + (rule2).all(axis=1) * 0.4 + 0.05
+            for j in range(n):
+                y[j] = np.random.choice([0,1], p=(1 - y[j], y[j]))
+            interact_true = [
+                [(j, "L") for j in range(6)],
+                [(j + 10 - i//5, "R") for j in range(6)],
+            ]
     else:
         raise ValueError("name is not allowed. only Enhancer or Sim")
     return X, y, interact_true
@@ -224,6 +256,7 @@ def train_model(
     rf = rfc(
         n_jobs=4,
         n_estimators=100,
+        max_depth=None,
         bootstrap=bootstrap,
     )
     rf.fit(
