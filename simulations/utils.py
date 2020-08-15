@@ -74,18 +74,18 @@ def load_data(
 ):
     if name == "Sim":
         if rule == "and":
-            robjects.r['load']("../../signediRF/data/gaussSim_and.Rdata")
+            robjects.r['load']("../data/gaussSim_and.Rdata")
             interact_true = [
                 [(0, 'R'), (1, 'R'), (2, 'R'), (3, 'R')],
             ]
         elif rule == "or":
-            robjects.r['load']("../../signediRF/data/gaussSim_or.Rdata")
+            robjects.r['load']("../data/gaussSim_or.Rdata")
             interact_true = [
                 [(0, 'R'), (1, 'R'), (2, 'L'), (3, 'L')],
                 [(0, 'L'), (1, 'L'), (2, 'R'), (3, 'R')],
             ]
         elif rule == "add":
-            robjects.r['load']("../../signediRF/data/gaussSim_add.Rdata")
+            robjects.r['load']("../data/gaussSim_add.Rdata")
             interact_true = [
                 [(0, 'R'), (1, 'R'), (2, 'R')],
                 [(3, 'R'), (4, 'R'), (5, 'R')],
@@ -98,18 +98,18 @@ def load_data(
         y = np.array(robjects.r['data'][i])[-5000:]
     elif name == "Enhancer":
         if rule == "and":
-            robjects.r['load']("../../signediRF/data/enhancer_sim_and.Rdata")
+            robjects.r['load']("../data/enhancer_sim_and.Rdata")
             interact_true = [
                 [(45, "R"), (49, "R"), (63, "R"), (74, "R")]
             ]
         elif rule == "or":
-            robjects.r['load']("../../signediRF/data/enhancer_sim_or.Rdata")
+            robjects.r['load']("../data/enhancer_sim_or.Rdata")
             interact_true = [
                 [(45, "R"), (74, "R"), (49, "L"), (63, "L")],
                 [(45, "L"), (74, "L"), (49, "R"), (63, "R")],
             ]
         elif rule == "add":
-            robjects.r['load']("../../signediRF/data/enhancer_sim_add.Rdata")
+            robjects.r['load']("../data/enhancer_sim_add.Rdata")
             interact_true = [
                 [(49, "R"), (53, "R"), (63, "R")],
                 [(45, "R"), (74, "R"), (77, "R")],
@@ -127,18 +127,18 @@ def load_data(
         y = y[train_id]
     elif name == "Enhancer_new":
         if rule == "and":
-            robjects.r['load']("../../signediRF/data/enhancer_new_sim_and.Rdata")
+            robjects.r['load']("../data/enhancer_new_sim_and.Rdata")
             interact_true = [
                 [(0, "R"), (4, "R"), (18, "R"), (29, "R")]
             ]
         elif rule == "or":
-            robjects.r['load']("../../signediRF/data/enhancer_new_sim_or.Rdata")
+            robjects.r['load']("../data/enhancer_new_sim_or.Rdata")
             interact_true = [
                 [(4, "R"), (18, "R"), (0, "L"), (29, "L")],
                 [(4, "L"), (18, "L"), (0, "R"), (29, "R")],
             ]
         elif rule == "add":
-            robjects.r['load']("../../signediRF/data/enhancer_new_sim_add.Rdata")
+            robjects.r['load']("../data/enhancer_new_sim_add.Rdata")
             interact_true = [
                 [(4, "R"), (8, "R"), (18, "R")],
                 [(0, "R"), (29, "R"), (32, "R")],
