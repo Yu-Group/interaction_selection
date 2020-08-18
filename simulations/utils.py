@@ -3,16 +3,17 @@ import matplotlib.pyplot as plt
 import irf
 import pandas as pd
 from irf.ensemble import wrf as rfc
+from irf.ensemble import wrf_reg as rfr
 from irf.utils import (
     get_prevalent_interactions,
     visualize_impurity_decrease,
     visualize_prevalent_interactions,
     get_filtered_feature_paths
 )
-import rpy2.robjects as robjects
 from irf.irf_jupyter_utils import draw_tree
 from os.path import join as oj
 import os
+from sklearn.mixture import GaussianMixture
 
 def load_siRF_result(
     i=0,
@@ -66,12 +67,60 @@ def load_siRF_result(
     else:
         raise ValueError("name is not allowed. only Enhancer or Sim")
     return y_pred, interact_true
+
+def load_simulated_regression_data(
+    i=0,
+    num_interact=2,
+    SNR=100,
+    order=2,
+    region=0.1,
+    p=50,
+    n=5000,
+):
+    '''
+    load simulated regression data with given parameteres
     
+    Parameters
+    ----------
+    i : the random seed
+    num_iteract : number of true interactions
+    SNR :  signal to noise ratio
+        defined as var(signal) / var(noise), note that the outcome = signal + noise
+    order : the order of interactions
+    region : the size of the region covered by interactions
+        this measures the number of samples that fall into at least one of the rules
+    p : the number of dimensions
+    n : the number of samples
+    
+    Returns
+    -------
+    X : data matrix
+    y : response
+    interact_true : the true interactions
+    '''
+    np.random.seed(i+100)
+    interact_true = [
+        [(ind, 'L') for ind in range(start * order, (start+1) * order)] for start in range(num_interact)
+    ]
+    X = np.random.uniform(size=(n, p))
+    # formula: region = 1 - (1 - threshold ** order) ** num_interact
+    threshold = (1 - (1 - region) ** 1/num_interact) ** (1/order)
+    def f(X):
+        out = np.zeros_like(X[:,0]) * 1
+        for start in range(num_interact):
+            out += X[:,start*order:((start+1)*order)].prod(axis=1) * 1
+        return out
+    signal = f(X[:,:order * num_interact] < threshold)
+    noise = (np.var(signal) / SNR) ** .5 * np.random.normal(size=signal.shape)
+    y = signal + noise
+    return X, y, interact_true
+
 def load_data(
     i=0,
     name="Sim",
     rule="and",
 ):
+    import rpy2.robjects as robjects
     if name == "Sim":
         if rule == "and":
             robjects.r['load']("../data/gaussSim_and.Rdata")
@@ -224,6 +273,72 @@ def find_results_from_cache(filename, attribute_dict, dir='.'):
     except:
         pass
     return result
+def train_regression_model(
+    X,
+    y,
+    weight_scheme="depth",
+    intended_order=4,
+    bootstrap=True,
+    feature_selection='hard',
+    n_jobs=16,
+    tag="regression_model_results"
+):
+    if feature_selection == 'hard':
+        rf = rfr(
+            n_jobs=n_jobs,
+            n_estimators=100,
+            max_depth=None,
+            bootstrap=bootstrap,
+        )
+        rf.fit(
+            X,
+            y,
+            keep_record=False,
+            K=9,
+        )
+        gm = GaussianMixture(
+            n_components=2,
+            means_init=[[np.min(rf.feature_importances_)], [np.max(rf.feature_importances_)]],
+        )
+        selected_features = gm.fit_predict(rf.feature_importances_.reshape((-1,1)))
+        new_importance = gm.predict_proba(rf.feature_importances_.reshape((-1,1)))[:,1].flatten() #* rf.feature_importances_
+        rf = rfr(
+            n_jobs=n_jobs,
+            n_estimators=300,
+            max_features=int(np.sum(selected_features) ** .5),
+            max_depth=None,
+            bootstrap=bootstrap,
+        )
+        rf.fit(
+            X,
+            y,
+            keep_record=False,
+            feature_weight=new_importance,
+            K=1,
+        )
+    elif feature_selection == 'soft':
+        rf = rfr(
+            n_jobs=n_jobs,
+            n_estimators=300,
+            max_depth=None,
+            bootstrap=bootstrap,
+        )
+        rf.fit(
+            X,
+            y,
+            keep_record=False,
+            K=10,
+        )
+    min_support = rf.n_paths // 2 ** (intended_order + 1)
+    prevalence = get_prevalent_interactions(
+        rf,
+        impurity_decrease_threshold=1e-3,
+        min_support=min_support,
+        signed=True,
+        weight_scheme=weight_scheme,
+        adjust_for_weights=True,
+    )
+    return list(prevalence.keys())
 
 def train_model(
     X,
