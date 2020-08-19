@@ -73,7 +73,7 @@ def load_simulated_regression_data(
     num_interact=2,
     SNR=100,
     order=2,
-    region=0.1,
+    region=0.5,
     p=50,
     n=5000,
 ):
@@ -104,7 +104,7 @@ def load_simulated_regression_data(
     ]
     X = np.random.uniform(size=(n, p))
     # formula: region = 1 - (1 - threshold ** order) ** num_interact
-    threshold = (1 - (1 - region) ** 1/num_interact) ** (1/order)
+    threshold = (1 - (1 - region) ** (1/num_interact)) ** (1/order)
     def f(X):
         out = np.zeros_like(X[:,0]) * 1
         for start in range(num_interact):
@@ -404,7 +404,7 @@ def train_model(
         cache_result(tag+'.csv', params, list(prevalence.items()))
     return list(prevalence.keys())
 
-def fit_score(interact_pred, interact_true, type='strict'):
+def fit_score(interact_pred, interact_true, type='strict', with_sign=False):
     """
     Compute the score of two sets
     We ignore the direction in this problem.
@@ -419,10 +419,14 @@ def fit_score(interact_pred, interact_true, type='strict'):
     """
     if len(interact_pred) == 0:
         return 0
-    if isinstance(interact_pred[0], tuple):
+    if not with_sign and isinstance(interact_pred[0], tuple):
         interact_pred = set([x[0] for x in interact_pred])
-    if isinstance(interact_true[0], tuple):
+    else:
+        interact_pred = set(interact_pred)
+    if not with_sign and isinstance(interact_true[0], tuple):
         interact_true = set([x[0] for x in interact_true])
+    else:
+        interact_true = set(interact_true)
     if type == 'strict':
         if interact_pred.issubset(interact_true):
             return len(interact_pred) / len(interact_true)
@@ -438,7 +442,7 @@ def fit_score(interact_pred, interact_true, type='strict'):
     else:
         raise ValueError('type({}) is not acceptable.'.format)
 
-def evaluate_model(y_pred, y_true, name, metric):
+def evaluate_model(y_pred, y_true, name, metric, with_sign=False):
     """
     Evaluate the predicted interactions.
     Each prediction gets a score for the best match for each elem in y_true
@@ -455,6 +459,8 @@ def evaluate_model(y_pred, y_true, name, metric):
         When name is enhancer_new, features are converted to genes
 
     metric : str, ['strict', 'medium', 'mild']
+    
+    with_sign:
 
     Returns
     -------
@@ -473,7 +479,7 @@ def evaluate_model(y_pred, y_true, name, metric):
     avg_scores = np.zeros((len(y_pred),))
     for interact_true in y_true:
         scores = [
-            fit_score(interact_pred, interact_true, type=metric) for interact_pred in y_pred
+            fit_score(interact_pred, interact_true, type=metric, with_sign=with_sign) for interact_pred in y_pred
         ]
         for i in range(1, len(scores)):
             scores[i] = max(scores[i], scores[i-1])
