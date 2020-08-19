@@ -348,6 +348,7 @@ def train_model(
     rule="and",
     weight_scheme="depth",
     bootstrap=True,
+    threshold=1e-3,
     tag='DefaultTag',
     use_cache=True,
     cache_after_run=True,
@@ -394,7 +395,7 @@ def train_model(
         mask = None
     prevalence = get_prevalent_interactions(
         rf,
-        impurity_decrease_threshold=1e-3,
+        impurity_decrease_threshold=threshold,
         min_support=min_support,
         signed=True,
         weight_scheme=weight_scheme,
