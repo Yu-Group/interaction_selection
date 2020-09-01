@@ -14,6 +14,7 @@ from irf.irf_jupyter_utils import draw_tree
 from os.path import join as oj
 import os
 from sklearn.mixture import GaussianMixture
+from scipy.linalg import sqrtm
 
 def load_siRF_result(
     i=0,
@@ -76,6 +77,9 @@ def load_simulated_regression_data(
     region=0.5,
     p=50,
     n=5000,
+    feature_correlation=0,
+    overlap=0,
+    noise_type='Gaussian',
 ):
     '''
     load simulated regression data with given parameteres
@@ -91,6 +95,10 @@ def load_simulated_regression_data(
         this measures the number of samples that fall into at least one of the rules
     p : the number of dimensions
     n : the number of samples
+    feature_correlation : the correlation for adjacent features. It follows an exponential decay
+        as features get further away.
+    overlap : the number of overlapping features. It has to be smaller than order.
+    noise_type : ['Gaussian', "Laplacian"] Either Gaussian noise or Laplacian noise.
     
     Returns
     -------
@@ -98,11 +106,22 @@ def load_simulated_regression_data(
     y : response
     interact_true : the true interactions
     '''
+    assert overlap < order, f"overlap({overlap}) must be smaller than order ({order})."
+    assert feature_correlation >= 0, f"feature_correlation({feature_correlation}) should be non-negative."
     np.random.seed(i+100)
     interact_true = [
-        [(ind, 'L') for ind in range(start * order, (start+1) * order)] for start in range(num_interact)
+        [(ind, 'L') for ind in range(start * (order - overlap), (start+1) * order - overlap * start)] for start in range(num_interact)
     ]
-    X = np.random.uniform(size=(n, p))
+    if feature_correlation == 0:
+        X = np.random.uniform(size=(n, p))
+    else:
+        X = np.random.uniform(size=(n, p))
+        cov = np.zeros((p,p))
+        for j1 in range(p):
+            for j2 in range(p):
+                cov[j1, j2] = feature_correlation ** (abs(j1 - j2))
+        cov = sqrtm(cov)
+        X = X @ cov
     # formula: region = 1 - (1 - threshold ** order) ** num_interact
     threshold = (1 - (1 - region) ** (1/num_interact)) ** (1/order)
     def f(X):
@@ -111,14 +130,31 @@ def load_simulated_regression_data(
             out += X[:,start*order:((start+1)*order)].prod(axis=1) * 1
         return out
     signal = f(X[:,:order * num_interact] < threshold)
-    noise = (np.var(signal) / SNR) ** .5 * np.random.normal(size=signal.shape)
+    if noise_type == 'Gaussian':
+        noise = (np.var(signal) / SNR) ** .5 * np.random.normal(size=signal.shape)
+    elif noise_type == 'Laplacian':
+        noise = np.random.laplace(size=signal.shape)
+        noise = noise / np.std(noise)
+        noise = (np.var(signal) / SNR) ** .5 * noise
+    elif noise_type == "Cauchy":
+        noise = np.random.standard_cauchy(size=signal.shape)
+        noise = noise / np.std(noise)
+        noise = (np.var(signal) / SNR) ** .5 * noise
+    else:
+        raise AttributeError(f"noise_type ({noise_type}) is not understood.")
     y = signal + noise
     return X, y, interact_true
-
+def permute_all_columns(X):
+    Y = np.zeros_like(X)
+    for i in range(X.shape[1]):
+        Y[:, i] = np.random.permutation(X[:, i])
+    return Y
 def load_data(
     i=0,
     name="Sim",
     rule="and",
+    permute_columns=False,
+    gaussian=False,
 ):
     import rpy2.robjects as robjects
     if name == "Sim":
@@ -203,6 +239,72 @@ def load_data(
         y = np.array(robjects.r['data'][i])[7809*35:7809*36]
         X = X[train_id]
         y = y[train_id]
+    elif name == "Enhancer_new_permutation":
+        mask = ["zld", "bcd", "bcd", "cad", "D", "da", "dl", "ftz", "gt", "h",
+         "h", "hb", "hb", "hkb", "hkb", "hkb", "kni", "kni", "kr", "kr", 
+         "mad", "med", "prd", "prd", "run", "run", "shn", "shn", "slp1", "sna", 
+         "sna", "tll", "twi", "twi", "z"]
+        if rule == "and":
+            robjects.r['load']("../data/enhancer_new_sim_and.Rdata")
+            indices = np.random.choice(np.arange(len(mask)), 4, replace=False)
+            while len(set([mask[xxx] for xxx in indices])) < 4:
+                indices = np.random.choice(np.arange(len(mask)), 4, replace=False)
+            interact_true = [
+                [(xxx, "R") for xxx in indices]
+            ]
+            beta = 0.4
+        elif rule == "or":
+            robjects.r['load']("../data/enhancer_new_sim_or.Rdata")
+            indices = np.random.choice(np.arange(len(mask)), 4, replace=False)
+            while len(set([mask[xxx] for xxx in indices])) < 4:
+                indices = np.random.choice(np.arange(len(mask)), 4, replace=False)
+            interact_true = [
+                [(indices[0], "R"), (indices[1], "R"), (indices[2], "L"), (indices[3], "L")],
+                [(indices[0], "L"), (indices[1], "L"), (indices[2], "R"), (indices[3], "R")],
+            ]
+            beta = 0.4
+        elif rule == "add":
+            robjects.r['load']("../data/enhancer_new_sim_add.Rdata")
+            indices = np.random.choice(np.arange(len(mask)), 6, replace=False)
+            while len(set([mask[xxx] for xxx in indices])) < 6:
+                indices = np.random.choice(np.arange(len(mask)), 6, replace=False)
+            interact_true = [
+                [(xxx, "R") for xxx in indices[:3]],
+                [(xxx, "R") for xxx in indices[3:]],
+            ]
+            beta = 0.4
+        else:
+            raise ValueError(
+                "rule (%s) is not allowed. only take and, or, add"
+            )
+        raw = np.array(robjects.r['data'][i])
+        len_train_id = int(raw[-1])
+        train_id = raw[-(len_train_id + 1):-1].astype(int) - 1
+        X = np.array(robjects.r['data'][i])[:7809 * 35].reshape((35, 7809)).T
+        if gaussian:
+            X = np.random.normal(size=X.shape)
+        if permute_columns:
+            X = permute_all_columns(X)
+        y = np.array(robjects.r['data'][i])[7809*35:7809*36] # will be replaced by new values
+        y_prob = np.zeros((X.shape[0],))
+        for rule in interact_true:
+            sets = [x[0] for x in rule]
+            
+            # preprocess to get the features, flip features when the sign is R
+            X_new = X[:, sets] > 0
+            #thresss = []
+            for i, x in enumerate(rule):
+                #thresss.append(np.quantile(X[:, x[0]], 1 - 0.1 ** .25))
+                if x[1] == 'R':
+                    X_new[:, i] = X[:, x[0]] > np.quantile(X[:, x[0]], 1 - 0.1 ** .25)
+                else:
+                    X_new[:, i] = X[:, x[0]] <= np.quantile(X[:, x[0]], 0.1 ** .25)
+            y_prob += X_new.all(axis=1) * beta
+        for i in range(X.shape[0]):
+            y[i] = np.random.choice([0, 1], p=(1 - y_prob[i], y_prob[i]))
+        #print(np.var(y_prob) / np.var(y - y_prob))
+        X = X[train_id]
+        y = y[train_id]
     elif name == 'Sim_new':
         np.random.seed(i * 100)
         n, p = 5000, 50
@@ -273,6 +375,7 @@ def find_results_from_cache(filename, attribute_dict, dir='.'):
     except:
         pass
     return result
+
 def train_regression_model(
     X,
     y,
@@ -281,7 +384,8 @@ def train_regression_model(
     bootstrap=True,
     feature_selection='hard',
     n_jobs=16,
-    tag="regression_model_results"
+    tag="regression_model_results",
+    threshold=1e-3,
 ):
     if feature_selection == 'hard':
         rf = rfr(
@@ -332,7 +436,7 @@ def train_regression_model(
     min_support = rf.n_paths // 2 ** (intended_order + 1)
     prevalence = get_prevalent_interactions(
         rf,
-        impurity_decrease_threshold=1e-3,
+        impurity_decrease_threshold=threshold,
         min_support=min_support,
         signed=True,
         weight_scheme=weight_scheme,
@@ -383,6 +487,8 @@ def train_model(
     )
     if name == "Sim":
         min_support = 500 #if rule == "or" else 500
+    elif name == 'Enhancer_new_permutation':
+        min_support = rf.n_paths // 2 ** (4 + 2)
     else:
         min_support = 500
     if name == 'Enhancer_new':
@@ -393,14 +499,24 @@ def train_model(
         mask = {x:y for x, y in enumerate(mask)}
     else:
         mask = None
-    prevalence = get_prevalent_interactions(
-        rf,
-        impurity_decrease_threshold=threshold,
-        min_support=min_support,
-        signed=True,
-        weight_scheme=weight_scheme,
-        mask=mask,
-    )
+    if name != 'Enhancer_new_permutation':
+        prevalence = get_prevalent_interactions(
+            rf,
+            impurity_decrease_threshold=threshold,
+            min_support=min_support,
+            signed=True,
+            weight_scheme=weight_scheme,
+            mask=mask,
+        )
+    else:
+        prevalence = get_prevalent_interactions(
+            rf,
+            impurity_decrease_threshold=threshold,
+            min_support=min_support,
+            signed=True,
+            weight_scheme=weight_scheme,
+            adjust_for_weights=True,
+        )
     if cache_after_run:
         cache_result(tag+'.csv', params, list(prevalence.items()))
     return list(prevalence.keys())
