@@ -127,9 +127,9 @@ def load_simulated_regression_data(
     def f(X):
         out = np.zeros_like(X[:,0]) * 1
         for start in range(num_interact):
-            out += X[:,start*order:((start+1)*order)].prod(axis=1) * 1
+            out += X[:,start*(order-overlap):((start+1)*order - start * overlap)].prod(axis=1) * 1
         return out
-    signal = f(X[:,:order * num_interact] < threshold)
+    signal = f(X[:,:order * num_interact - overlap * (num_interact - 1)] < threshold)
     if noise_type == 'Gaussian':
         noise = (np.var(signal) / SNR) ** .5 * np.random.normal(size=signal.shape)
     elif noise_type == 'Laplacian':
@@ -433,6 +433,7 @@ def train_regression_model(
             keep_record=False,
             K=10,
         )
+        #print(rf.n_paths)
     min_support = rf.n_paths // 2 ** (intended_order + 1)
     prevalence = get_prevalent_interactions(
         rf,
