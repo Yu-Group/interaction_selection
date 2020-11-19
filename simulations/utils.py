@@ -10,11 +10,13 @@ from irf.utils import (
     visualize_prevalent_interactions,
     get_filtered_feature_paths
 )
+from irf.irf_utils import run_iRF
 from irf.irf_jupyter_utils import draw_tree
 from os.path import join as oj
 import os
 from sklearn.mixture import GaussianMixture
 from scipy.linalg import sqrtm
+from irf.ensemble import RandomForestRegressorWithWeights as wrfr
 
 def load_siRF_result(
     i=0,
@@ -375,7 +377,16 @@ def find_results_from_cache(filename, attribute_dict, dir='.'):
     except:
         pass
     return result
-
+def train_regression_model_iRF(
+    X,
+    y,
+):
+    _,_, _, _, stability_score = run_iRF(
+        X, X, y, y, wrfr(), K=10, bin_class_type=None,
+    )
+    items = sorted(list(stability_score.items()), key= lambda x: -x[1])
+    preds = [x[0] for x in items]
+    return preds
 def train_regression_model(
     X,
     y,
