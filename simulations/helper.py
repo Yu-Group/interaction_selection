@@ -70,6 +70,7 @@ def ff_3(name, num_interact, order, SNR, feature_correlation, overlap, noise_typ
         X,
         y,
     )
+    y_pred = [[(int(tt), 'L') for tt in x.split("_")] for x in y_pred]
     for metric in ['strict', 'mild']:
         result = evaluate_model(y_pred, y_true, name, metric=metric, with_sign=False)
         final1[(feature_correlation, overlap, noise_type, ind, 'soft', metric)] = result
